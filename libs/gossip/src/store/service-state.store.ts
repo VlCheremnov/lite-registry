@@ -27,7 +27,7 @@ export class ServiceStateStore {
 		return this.state
 	}
 
-	/** Получить список сервисов */
+	/** Получить список всех живых сервисов */
 	public get getServices() {
 		return Array.from(this.state.values()).filter(
 			({ state }) => state !== ServiceRecordStateEnum.Dead
@@ -37,17 +37,6 @@ export class ServiceStateStore {
 	/** Получить отфильтрованный список сервисов */
 	public getFilteredServices(recordsIds: ServiceIdType[]) {
 		return this.getServices.filter(({ id }) => recordsIds.includes(id))
-	}
-
-	/** Карта serviceId -> версия */
-	public get getMapVersions(): DigestType {
-		const digest: DigestType = {}
-
-		this.state.forEach(({ id, version, incarnation }) => {
-			digest[id] = { version, incarnation }
-		})
-
-		return digest
 	}
 
 	/** Обновляем сервис*/

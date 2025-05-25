@@ -1,6 +1,6 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common'
 import { ServiceStateStore } from '../store/service-state.store'
-import { GossipReqDigestType } from '../types'
+import { DigestType, GossipReqDigestType } from '../types'
 import { TransportType } from '../enums'
 import { GossipTransport } from '../transport/gossip.transport'
 
@@ -9,8 +9,8 @@ export class GossipScheduler implements OnModuleInit, OnModuleDestroy {
 	private timer: NodeJS.Timeout | null = null
 
 	/* todo: Вынести в конфиги */
-	private readonly minGossipIntervalMs = 1_000
-	private readonly maxGossipIntervalMs = 1_500
+	private readonly minGossipIntervalMs = 10_000
+	private readonly maxGossipIntervalMs = 11_000
 
 	constructor(
 		private readonly store: ServiceStateStore,
@@ -48,12 +48,25 @@ export class GossipScheduler implements OnModuleInit, OnModuleDestroy {
 		const peer = this.transport.getRandomPeer()
 		if (!peer) return
 
-		const digest = this.store.getMapVersions
+		const digest = this.getDigest
 
 		await this.transport.sendMsg<GossipReqDigestType>({
 			data: digest,
 			peerId: peer.id,
 			type: TransportType.GossipDigest,
 		})
+	}
+
+	/** Карта serviceId -> версия */
+	public get getDigest(): DigestType {
+		const digest: DigestType = {}
+
+		this.store.getServices.forEach(
+			({ id, version, generation, sequence, claimTs }) => {
+				digest[id] = { version, generation, sequence, claimTs }
+			}
+		)
+
+		return digest
 	}
 }

@@ -28,6 +28,9 @@ export class DigestHandler {
 			return this.logger.error('Сервис принадлежит другому агенту!')
 		}
 
+		/* todo: Перенести */
+		const sequence = service ? service.sequence + 1 : 0
+
 		/* Обновленная запись */
 		const next: ServiceRecordType = {
 			...record,
@@ -35,7 +38,10 @@ export class DigestHandler {
 			heartbeatTs: +Date.now(),
 			ownerId: service?.ownerId ?? this.transport.getSelfId,
 			state: ServiceRecordStateEnum.Alive,
-			incarnation: 0,
+			generation: service?.generation ?? 0,
+			sequence,
+			/* Заполняем 1 раз только при создании сервиса или изменении овнера */
+			claimTs: service?.claimTs ?? +Date.now(),
 		}
 
 		this.store.updateService(next)
@@ -51,9 +57,20 @@ export class DigestHandler {
 			const service = this.store.getService(record.id)
 
 			/* Делаем проверку, что текущий сервис меньшей версии */
-			if (service && record.version <= service.version) {
+			if (service && record.version < service.version) {
 				return
 			}
+
+			// if (remote.incarnation !== local.incarnation)
+			//   return remote.incarnation > local.incarnation
+			//
+			// if (remote.version !== local.version)
+			//   return remote.version > local.version
+			//
+			// if (remote.claimTs !== local.claimTs)
+			//   return remote.claimTs < local.claimTs   // «старше» – тот, кто первым заявил
+			//
+			// return remote.ownerId > local.ownerId      // детерминируем спор
 
 			const update: ServiceRecordType = {
 				...record,
@@ -75,9 +92,9 @@ export class DigestHandler {
 		const delta: ServiceRecordType[] = []
 
 		this.store.getServices.forEach((service) => {
-			const peerVer = digest[service.id]?.version ?? 0
+			const { generation = 0, version = 0 } = digest[service.id] || {}
 
-			if (service.version > peerVer) {
+			if (service.generation > generation || service.version > version) {
 				/* Отправляем все кроме временной метки */
 				delta.push(service)
 			}
@@ -93,6 +110,7 @@ export class DigestHandler {
 		}
 	}
 
+	/** обновляем сервисы по digest */
 	private async updateDigest({
 		digest,
 		fromId,
@@ -103,34 +121,44 @@ export class DigestHandler {
 		const { serviceIdsToRefresh, serviceIdsForHeartbeatUpdate } =
 			this.compareDigest(digest)
 
-		/* Обновляем heartbeatTs */
-		if (serviceIdsForHeartbeatUpdate.length) {
-			serviceIdsForHeartbeatUpdate.forEach((serviceId) => {
+		this.updateHeartbeat(serviceIdsForHeartbeatUpdate)
+
+		const services = await this.fetchServices(serviceIdsToRefresh, fromId)
+		this.mergeServices(services)
+	}
+
+	/** Запрашиваем сервисы */
+	private async fetchServices(serviceIds: ServiceIdType[], fromId: string) {
+		if (!serviceIds.length) {
+			return []
+		}
+
+		const res = await this.transport.sendMsg<
+			GossipReqFetchRecordsType,
+			ServiceRecordType[]
+		>({
+			data: serviceIds,
+			peerId: fromId,
+			type: TransportType.GossipFetchServices,
+		})
+
+		const services = res?.payload || []
+
+		if (!services.length) {
+			this.logger.error('Services not found')
+		}
+
+		return services
+	}
+
+	/** Обновляем таймер жизни */
+	private updateHeartbeat(serviceIds: ServiceIdType[]) {
+		if (serviceIds.length) {
+			serviceIds.forEach((serviceId) => {
 				const service = this.store.getService(serviceId)!
 
 				this.store.updateService({ ...service, heartbeatTs: +Date.now() })
 			})
-		}
-
-		/* Запрашивает сервисы и обновляем их */
-		if (serviceIdsToRefresh.length) {
-			const res = await this.transport.sendMsg<
-				GossipReqFetchRecordsType,
-				ServiceRecordType[]
-			>({
-				data: serviceIdsToRefresh,
-				peerId: fromId,
-				type: TransportType.GossipFetchServices,
-			})
-
-			const fetchServices = res?.payload || []
-
-			if (!fetchServices.length) {
-				this.logger.error('Services not found')
-				return
-			}
-
-			this.mergeServices(fetchServices)
 		}
 	}
 
@@ -141,24 +169,33 @@ export class DigestHandler {
 
 		for (const [
 			serviceId,
-			{ version: digestVersion, incarnation: digestIncarnation },
+			{
+				version: digestVersion,
+				generation: digestGeneration,
+				sequence: digestSequence,
+			},
 		] of Object.entries(digest)) {
 			const service = this.store.getService(serviceId)
 
 			const serviceVersion = service?.version ?? 0
-			const serviceIncarnation = service?.incarnation ?? 0
+			const serviceGeneration = service?.generation ?? 0
+			const serviceSequence = service?.sequence ?? 0
 
 			/* Обновляем heartbeatTs */
 			if (
 				service &&
-				digestIncarnation > serviceIncarnation &&
-				digestVersion > serviceVersion
+				(digestSequence > serviceSequence ||
+					digestGeneration > serviceGeneration ||
+					digestVersion > serviceVersion)
 			) {
 				serviceIdsForHeartbeatUpdate.push(serviceId)
 			}
 
 			/* Записывает устаревшую версию */
-			if (digestVersion > serviceVersion) {
+			if (
+				digestGeneration > serviceGeneration ||
+				digestVersion > serviceVersion
+			) {
 				serviceIdsToRefresh.push(serviceId)
 			}
 		}

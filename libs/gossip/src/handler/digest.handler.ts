@@ -173,28 +173,32 @@ export class DigestHandler {
 				version: digestVersion,
 				generation: digestGeneration,
 				sequence: digestSequence,
+				claimTs: digestClaimTs,
 			},
 		] of Object.entries(digest)) {
 			const service = this.store.getService(serviceId)
 
-			const serviceVersion = service?.version ?? 0
-			const serviceGeneration = service?.generation ?? 0
-			const serviceSequence = service?.sequence ?? 0
+			if (service) {
+				if (service.claimTs > digestClaimTs) {
+					this.logger.error('Claim ts deprecation')
+					continue
+				}
 
-			/* Обновляем heartbeatTs */
-			if (
-				service &&
-				(digestSequence > serviceSequence ||
-					digestGeneration > serviceGeneration ||
-					digestVersion > serviceVersion)
-			) {
-				serviceIdsForHeartbeatUpdate.push(serviceId)
+				/* Обновляем heartbeatTs */
+				if (
+					digestSequence > service.sequence ||
+					digestGeneration > service.generation ||
+					digestVersion > service.version
+				)
+					serviceIdsForHeartbeatUpdate.push(serviceId)
 			}
 
 			/* Записывает устаревшую версию */
 			if (
-				digestGeneration > serviceGeneration ||
-				digestVersion > serviceVersion
+				!service ||
+				digestClaimTs > service.claimTs ||
+				digestGeneration > service.generation ||
+				digestVersion > service.version
 			) {
 				serviceIdsToRefresh.push(serviceId)
 			}

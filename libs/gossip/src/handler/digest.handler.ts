@@ -56,28 +56,19 @@ export class DigestHandler {
 		records.forEach((record) => {
 			const service = this.store.getService(record.id)
 
-			/* Делаем проверку, что текущий сервис меньшей версии */
-			if (service && record.version < service.version) {
-				return
+			if (
+				!service ||
+				service.claimTs <= record.claimTs ||
+				service.generation < record.generation ||
+				service.version < record.version
+			) {
+				const update: ServiceRecordType = {
+					...record,
+					heartbeatTs: service?.heartbeatTs ?? +Date.now(),
+				}
+
+				this.store.updateService(update)
 			}
-
-			// if (remote.incarnation !== local.incarnation)
-			//   return remote.incarnation > local.incarnation
-			//
-			// if (remote.version !== local.version)
-			//   return remote.version > local.version
-			//
-			// if (remote.claimTs !== local.claimTs)
-			//   return remote.claimTs < local.claimTs   // «старше» – тот, кто первым заявил
-			//
-			// return remote.ownerId > local.ownerId      // детерминируем спор
-
-			const update: ServiceRecordType = {
-				...record,
-				heartbeatTs: service?.heartbeatTs ?? +Date.now(),
-			}
-
-			this.store.updateService(update)
 		})
 	}
 

@@ -28,7 +28,7 @@ export interface ServiceRecordType {
 /** Оболочка для добавления/обновления сервиса */
 export type UpsertLocalServiceType = Pick<
 	ServiceRecordType,
-	'id' | 'name' | 'host'
+	'id' | 'name' | 'host' | 'meta'
 >
 
 /** Оболочка дайджеста */

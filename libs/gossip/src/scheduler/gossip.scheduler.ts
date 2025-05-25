@@ -9,8 +9,8 @@ export class GossipScheduler implements OnModuleInit, OnModuleDestroy {
 	private timer: NodeJS.Timeout | null = null
 
 	/* todo: Вынести в конфиги */
-	private readonly minGossipIntervalMs = 10_000
-	private readonly maxGossipIntervalMs = 11_000
+	private readonly minGossipIntervalMs = 1_000
+	private readonly maxGossipIntervalMs = 1_000
 
 	constructor(
 		private readonly store: ServiceStateStore,
